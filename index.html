@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Café Lubre 伝票システム</title>
+<style>
+:root{--ink:#17302b;--iv:#1f5c4f;--mist:#eef3f1;--pp:#fff;--br:#b8892b;--ln:#d5e0dc;--mut:#6b827b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--mist);color:var(--ink);font:15px/1.55 "Hiragino Sans","Yu Gothic",Meiryo,sans-serif}
+h1,h2,.tot{font-family:"Hiragino Mincho ProN","Yu Mincho",serif}
+h1{font-size:19px;margin:0 auto 0 0;color:var(--iv)}h2{font-size:16px;margin:0 0 10px}h3{font-size:14px;margin:16px 0 6px;color:var(--iv)}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;background:var(--pp);border-bottom:2px solid var(--iv);position:sticky;top:0;z-index:5}
+main{max-width:920px;margin:0 auto;padding:14px 14px 120px}
+.card{background:var(--pp);border:1px solid var(--ln);border-radius:6px;padding:14px;margin-bottom:14px}
+button,select,input,textarea{font:inherit;color:inherit;background:var(--pp);border:1px solid var(--ln);border-radius:6px;padding:7px 11px}
+button{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--br);outline-offset:1px}
+button.p{background:var(--iv);color:#fff;border-color:var(--iv)}.tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
+.it{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:8px 10px;border:1px solid var(--ln);border-radius:6px}
+.it.sel{border-color:var(--iv);background:#e3efeb}.it small{color:var(--mut);display:block}
+.q{display:flex;align-items:center;gap:6px}.q button{width:32px;padding:4px}.q b{min-width:18px;text-align:center}
+table{width:100%;border-collapse:collapse}th,td{padding:6px 8px;border-bottom:1px solid var(--ln);text-align:left}.n{text-align:right!important}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--pp);border-top:2px solid var(--iv);padding:10px 14px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap}
+.tot{font-size:24px;color:var(--br);font-weight:700}
+.hide{display:none!important}.mut{color:var(--mut)}textarea{width:100%;min-height:170px}
+#login{text-align:center;padding:90px 20px}#login h1{margin:0 0 10px;font-size:26px}
+</style></head><body>
+<div id="login" class="hide"><h1>Café Lubre 伝票システム</h1>
+<p id="lmsg" class="mut">スタッフ用です。Googleアカウントでログインしてください。</p>
+<button class="p" id="bin">Googleでログイン</button> <button id="bout2" class="hide">別のアカウントでログイン</button></div>
+
+<div id="app" class="hide">
+<header><h1>Café Lubre</h1><select id="ev" aria-label="開催回"></select>
+<span class="tabs"><button data-t="t1" class="on">伝票入力</button> <button data-t="t2">開催日別売上表</button> <button data-t="t3" id="tadm" class="hide">管理</button></span>
+<span class="mut" id="who"></span><button id="bout">ログアウト</button></header>
+<main>
+<section id="t1"><div class="card"><h2>伝票入力</h2>
+<input id="buyer" placeholder="購入者名" maxlength="40" style="width:100%;max-width:320px"> <span id="msg" class="mut"></span><div id="menu"></div></div>
+<div class="bar"><span>合計</span><span class="tot" id="tot">¥0</span><button id="rst">リセット</button><button class="p" id="ok">会計確定</button></div></section>
+
+<section id="t2" class="hide"><div class="card"><h2>売上明細 <button id="csv" style="float:right">CSV出力</button></h2><div style="overflow-x:auto"><table id="det"></table></div></div>
+<div class="card"><h2>商品別集計</h2><div style="overflow-x:auto"><table id="sum"></table></div></div></section>
+
+<section id="t3" class="hide"><div class="card"><h2>開催回の作成・更新</h2>
+<input type="date" id="ed"> <select id="es"><option>昼の部</option><option>夜の部</option></select> <button id="ld">選択中の開催回のメニューを読み込む</button>
+<p class="mut">1行に「カテゴリ,商品名,単価」。同じ日付・時間帯で保存すると、メニューと単価が更新されます(過去の注文の単価は変わりません)。</p>
+<textarea id="mt"></textarea><p><button class="p" id="mk">保存</button></p></div>
+<div class="card"><h2>スタッフ管理</h2><input id="se" type="email" placeholder="Gmailアドレス"> <select id="sr"><option value="staff">スタッフ</option><option value="admin">管理者</option></select> <button class="p" id="sa">追加</button>
+<table id="sl"></table></div></section>
+</main></div>
+
+<script type="module">
+import{initializeApp}from"https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+import{getAuth,GoogleAuthProvider,signInWithPopup,onAuthStateChanged,signOut}from"https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+import{getFirestore,collection,doc,getDoc,setDoc,deleteDoc,onSnapshot,query,orderBy,writeBatch}from"https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+const cfg={apiKey:"AIzaSyBGLXJ28VOdVJ6cUP8OPMhmrljHmHWHLSw",authDomain:"cafe-lubre-system.firebaseapp.com",projectId:"cafe-lubre-system",storageBucket:"cafe-lubre-system.firebasestorage.app",messagingSenderId:"983066722844",appId:"1:983066722844:web:0341c0bfb220f0769515d9"};
+const OWNER="paisenff14gamer@gmail.com";
+const auth=getAuth(initializeApp(cfg)),db=getFirestore();
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const yen=n=>"¥"+Number(n).toLocaleString();
+const M={FOOD:[["オムライス",980],["ラセットポポトグラタン",980],["サーモンクリームパスタ",1080],["ビーフシチュー",980]],
+BREAD:[["賢人サンドイッチ",880],["バナナパンズケーキ",780],["スイートマフィン",780],["ロイヤルトースト",600]],
+SOUP:[["ベジタブルスープ",500],["クラムチャウダー",600],["パンプキンポタージュ",600]],
+DRINK:[["オレンジジュース",500],["メロンジュース",500],["ワイルドバナナスムージー",800],["カモミールティー",500],["イシュガルドティー",600],["チャイ・トゥ・ヴヌー",600],["ドリップコーヒー",500],["シナモンホイップティー",600],["ホットココア",500]],
+DESSERT:[["テンダーショートケーキ",700],["ガトーショコラ",800],["ババロア・オ・シューコン",600],["トラルパイナップルケーキ",600],["トラルフルーツのタルト",800],["ジャイアントポポトパンケーキ",700]],
+SPECIAL:[["クッキー&ティー10個セット",2000],["高級マテ茶クッキー20個",2000],["マテ・スイートティー20個",2000],["ラムネジュース10個",500],["バタフライピー10個",500],["グレープジュース10個",500],["リンゴジュース10個",500]]};
+const toText=m=>m.map(x=>[x.cat,x.name,x.price].join(",")).join("\n");
+$("#mt").value=Object.entries(M).flatMap(([c,a])=>a.map(([n,p])=>`${c},${n},${p}`)).join("\n");
+let me="",admin=false,evs=[],cur=null,cart={},orders=[],uO,uE,uS;
+const stop=()=>{[uO,uE,uS].forEach(f=>f&&f());uO=uE=uS=null;cur=null;orders=[];evs=[]};
+const view=a=>{$("#login").classList.toggle("hide",a);$("#app").classList.toggle("hide",!a)};
+
+$("#bin").onclick=()=>signInWithPopup(auth,new GoogleAuthProvider()).catch(e=>alert("ログインに失敗しました: "+e.code));
+$("#bout").onclick=$("#bout2").onclick=()=>signOut(auth);
+onAuthStateChanged(auth,async u=>{
+ stop();$("#bout2").classList.add("hide");
+ if(!u){$("#lmsg").textContent="スタッフ用です。Googleアカウントでログインしてください。";return view(false)}
+ me=(u.email||"").toLowerCase();let ok=me===OWNER;admin=ok;
+ if(!ok){try{const s=await getDoc(doc(db,"staff",me));ok=s.exists();admin=ok&&s.data().role==="admin"}catch(e){}}
+ if(!ok){$("#lmsg").textContent=`${me} は登録されていません。管理者にこのアドレスの登録を依頼してください。`;$("#bout2").classList.remove("hide");return view(false)}
+ $("#who").textContent=me;$("#tadm").classList.toggle("hide",!admin);view(true);
+ uE=onSnapshot(query(collection(db,"events"),orderBy("date","desc")),s=>{
+  evs=s.docs.map(d=>({id:d.id,...d.data()}));const keep=cur&&cur.id;
+  $("#ev").innerHTML=evs.map(e=>`<option value="${esc(e.id)}">${esc(e.date)} ${esc(e.slot)}</option>`).join("");
+  pick((evs.find(e=>e.id===keep)||evs[0]||{}).id)},e=>alert("読み込みエラー: "+e.code));
+ if(admin)uS=onSnapshot(collection(db,"staff"),s=>{
+  $("#sl").innerHTML=s.docs.map(d=>`<tr><td>${esc(d.id)}</td><td>${d.data().role==="admin"?"管理者":"スタッフ"}</td><td class="n"><button data-rm="${esc(d.id)}">削除</button></td></tr>`).join("")});
+});
+
+function pick(id){
+ const e=evs.find(x=>x.id===id),ch=!cur||!e||cur.id!==e.id;cur=e||null;if(e)$("#ev").value=e.id;
+ if(ch){cart={};uO&&uO();orders=[];if(e)uO=onSnapshot(collection(db,"events",e.id,"orders"),s=>{orders=s.docs.map(d=>({id:d.id,...d.data()}));sales()})}
+ menu();sales()}
+$("#ev").onchange=e=>pick(e.target.value);
+
+function menu(){
+ const m=$("#menu");
+ if(!cur){m.innerHTML='<p class="mut">開催回がありません。管理者は「管理」タブで開催回を作成してください。</p>';return total()}
+ const g={};cur.menu.forEach((x,i)=>(g[x.cat]=g[x.cat]||[]).push([x,i]));
+ m.innerHTML=Object.entries(g).map(([c,a])=>`<h3>${esc(c)}</h3><div class="grid">`+a.map(([x,i])=>
+  `<div class="it ${cart[i]?"sel":""}"><span>${esc(x.name)}<small>${yen(x.price)}</small></span><span class="q"><button data-i="${i}" data-d="-1" aria-label="減らす">−</button><b>${cart[i]||0}</b><button data-i="${i}" data-d="1" aria-label="増やす">＋</button></span></div>`).join("")+"</div>").join("");
+ total()}
+function total(){$("#tot").textContent=yen(Object.entries(cart).reduce((s,[i,q])=>s+(cur&&cur.menu[i]?cur.menu[i].price*q:0),0))}
+$("#menu").onclick=e=>{const b=e.target.closest("button[data-i]");if(!b)return;const i=b.dataset.i;cart[i]=Math.max(0,(cart[i]||0)+ +b.dataset.d);menu()};
+$("#rst").onclick=()=>{cart={};menu()};
+$("#ok").onclick=async()=>{
+ const b=$("#buyer").value.trim(),ls=Object.entries(cart).filter(([,q])=>q>0);
+ if(!cur||!b||!ls.length)return alert("購入者名を入力し、商品を1つ以上選んでください。");
+ const wb=writeBatch(db),t=Date.now();
+ ls.forEach(([i,q])=>{const x=cur.menu[i];wb.set(doc(collection(db,"events",cur.id,"orders")),{buyer:b,item:x.name,cat:x.cat,price:x.price,qty:q,total:x.price*q,by:me,t})});
+ try{await wb.commit();cart={};$("#buyer").value="";menu();$("#msg").textContent=`${b} さんの伝票を保存しました`}catch(e){alert("保存に失敗しました: "+e.code)}};
+
+function sales(){
+ if(!cur){$("#det").innerHTML=$("#sum").innerHTML="";return}
+ const o=[...orders].sort((a,b)=>a.t-b.t),ix=n=>cur.menu.findIndex(x=>x.name===n);
+ $("#det").innerHTML="<tr><th>購入者</th><th>商品</th><th class=n>単価</th><th class=n>数量</th><th class=n>正味金額</th><th></th></tr>"+
+  o.map(r=>`<tr><td>${esc(r.buyer)}</td><td>${esc(r.item)}</td><td class=n>${yen(r.price)}</td><td class=n>${r.qty}</td><td class=n>${yen(r.total)}</td><td class=n><button data-del="${r.id}">削除</button></td></tr>`).join("");
+ const s={};o.forEach(r=>{const k=s[r.item]=s[r.item]||{q:0,m:0};k.q+=r.qty;k.m+=r.total});
+ const q=o.reduce((a,r)=>a+r.qty,0),m=o.reduce((a,r)=>a+r.total,0);
+ $("#sum").innerHTML="<tr><th>商品</th><th class=n>数量</th><th class=n>正味金額</th></tr>"+
+  Object.entries(s).sort((a,b)=>ix(a[0])-ix(b[0])).map(([n,v])=>`<tr><td>${esc(n)}</td><td class=n>${v.q}</td><td class=n>${yen(v.m)}</td></tr>`).join("")+
+  `<tr><th>合計</th><th class=n>${q}</th><th class="n tot">${yen(m)}</th></tr>`}
+$("#det").onclick=async e=>{const b=e.target.closest("button[data-del]");if(b&&cur&&confirm("この明細を削除しますか?"))await deleteDoc(doc(db,"events",cur.id,"orders",b.dataset.del)).catch(x=>alert("削除失敗: "+x.code))};
+$("#csv").onclick=()=>{if(!cur)return;const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
+ const r=[["購入者","商品","単価","数量","正味金額"],...[...orders].sort((a,b)=>a.t-b.t).map(o=>[o.buyer,o.item,o.price,o.qty,o.total])];
+ const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\ufeff"+r.map(x=>x.map(q).join(",")).join("\r\n")],{type:"text/csv"}));a.download=cur.id+".csv";a.click()};
+
+$("#ld").onclick=()=>{if(cur)$("#mt").value=toText(cur.menu)};
+$("#mk").onclick=async()=>{
+ const date=$("#ed").value,slot=$("#es").value;if(!date)return alert("日付を選んでください。");
+ const mn=[];for(const l of $("#mt").value.split("\n")){if(!l.trim())continue;const [c,n,p]=l.split(/[,，\t]/).map(s=>s.trim());
+  if(!c||!n||!(+p>=0)||p==="")return alert("形式が正しくない行があります: "+l);mn.push({cat:c,name:n,price:+p})}
+ if(!mn.length)return alert("メニューを入力してください。");
+ try{await setDoc(doc(db,"events",date+"_"+slot),{date,slot,menu:mn,by:me});alert("保存しました");}catch(e){alert("保存に失敗しました: "+e.code)}};
+$("#sa").onclick=async()=>{const m=$("#se").value.trim().toLowerCase();if(!m.includes("@"))return alert("メールアドレスを入力してください。");
+ try{await setDoc(doc(db,"staff",m),{role:$("#sr").value});$("#se").value=""}catch(e){alert("追加に失敗しました: "+e.code)}};
+$("#sl").onclick=async e=>{const b=e.target.closest("button[data-rm]");if(b&&confirm(b.dataset.rm+" を削除しますか?"))await deleteDoc(doc(db,"staff",b.dataset.rm))};
+$$(".tabs button").forEach(b=>b.onclick=()=>{$$(".tabs button").forEach(x=>x.classList.toggle("on",x===b));["t1","t2","t3"].forEach(t=>$("#"+t).classList.toggle("hide",t!==b.dataset.t))});
+</script></body></html>
